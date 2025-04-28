@@ -12,8 +12,20 @@ app = Flask(__name__)
 
 DATA_PATH = 'kenohistory7.csv'
 MODEL_PATH = 'model.pkl'
-# 사용자의 Google Drive 모델 파일 링크 반영 완료
+
+# Google Drive에서 최신 모델과 데이터 파일 자동 다운로드
 MODEL_URL = 'https://drive.google.com/uc?id=1-0aDTDnPgESOmGaSOHGN--_incCrVH6O'
+DATA_URL = 'https://drive.google.com/uc?id=1-49bfcTDao0RZMNqo0klgf45-2k6StwK'
+
+# 모델 파일이 없으면 자동 다운로드
+if not os.path.exists(MODEL_PATH):
+    print("모델 파일 없음, Google Drive에서 다운로드 중...")
+    gdown.download(MODEL_URL, MODEL_PATH, quiet=False)
+
+# 데이터 파일이 없으면 자동 다운로드
+if not os.path.exists(DATA_PATH):
+    print("데이터 파일 없음, Google Drive에서 다운로드 중...")
+    gdown.download(DATA_URL, DATA_PATH, quiet=False)
 
 # 데이터 전처리 함수
 def prepare_features(df):
@@ -44,12 +56,7 @@ def prepare_features(df):
     y = df['Numbers'].apply(numbers_to_binary).tolist()
     return X, np.array(y)
 
-# 모델 파일이 없으면 Google Drive에서 자동 다운로드
-if not os.path.exists(MODEL_PATH):
-    print("모델 파일 없음, Google Drive에서 다운로드 중...")
-    gdown.download(MODEL_URL, MODEL_PATH, quiet=False)
-
-# 다운로드 후에도 없으면 최초 자동 학습
+# 모델이 없으면 최초 학습
 if not os.path.exists(MODEL_PATH):
     print("모델 파일 여전히 없음, 최초 학습으로 생성 중...")
     data = pd.read_csv(DATA_PATH)

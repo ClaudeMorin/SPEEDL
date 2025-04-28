@@ -1,33 +1,39 @@
 def prepare_features(df):
     df = df.copy()
-    
-    # 시간 정보 처리 (안전하게 에러 처리)
-    df['Hour'] = pd.to_datetime(df['Time'], errors='coerce').dt.hour
-    df['Minute'] = pd.to_datetime(df['Time'], errors='coerce').dt.minute
-    
-    # 이전 회차 숫자 정보 생성
+
+    # 시간정보를 명확한 포맷으로 안전하게 처리 (에러 발생 방지)
+    df['Hour'] = pd.to_datetime(df['Time'], errors='coerce', format='%I:%M:%S %p').dt.hour
+    df['Minute'] = pd.to_datetime(df['Time'], errors='coerce', format='%I:%M:%S %p').dt.minute
+
+    # 이전 회차의 번호(Prev_Numbers) 생성
     df['Prev_Numbers'] = df['Numbers'].shift(1)
 
-    # 숫자(1~70) 존재 여부를 체크하여 특성 생성 (빈칸 안전처리 포함)
+    # 숫자 (1~70)의 이전 회차 등장 여부를 명확히 체크
     for num in range(1, 71):
+        num_str = str(num).zfill(2)
         df[f'Prev_Num_{num}'] = df['Prev_Numbers'].apply(
-            lambda x: 1 if isinstance(x, str) and str(num).zfill(2) in x else 0
+            lambda x: 1 if pd.notna(x) and num_str in x.split(',') else 0
         )
 
-    # 결측값 제거 (중요 컬럼에 결측 존재 시 해당 row 삭제)
+    # 필수 데이터 누락된 행을 명확히 제거 (결측값 방지)
     df.dropna(subset=['Numbers', 'Prev_Numbers', 'Hour', 'Minute'], inplace=True)
 
-    # 특성 데이터(X) 생성
+    # 입력 특성(X) 명확히 정의 및 생성
     X_columns = ['GlobalRound', 'Hour', 'Minute'] + [f'Prev_Num_{num}' for num in range(1, 71)]
-    X = df[X_columns].values
+    X = df[X_columns].to_numpy()
 
-    # 정답 데이터(y) 생성 (NaN 완벽 방지)
+    # 예측할 정답(y) 명확히 생성 (NaN 완벽 방지)
     def numbers_to_binary(nums):
-        if not isinstance(nums, str):
-            nums = ''
-        nums_set = set(int(n) for n in nums.split(',') if n.strip().isdigit())
-        return [1 if num in nums_set else 0 for num in range(1, 71)]
+        binary_array = np.zeros(70, dtype=int)
+        if pd.isna(nums):
+            return binary_array
+        for n in nums.split(','):
+            if n.strip().isdigit():
+                idx = int(n.strip()) - 1
+                if 0 <= idx < 70:
+                    binary_array[idx] = 1
+        return binary_array.tolist()
 
     y = df['Numbers'].apply(numbers_to_binary).tolist()
 
-    return np.array(X), np.array(y)
+    return X, np.array(y)

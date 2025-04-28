@@ -1,3 +1,6 @@
+from flask import Flask
+app = Flask(__name__)  # 반드시 이렇게 작성되어 있어야 합니다.
+
 def prepare_features(df):
     df = df.copy()
 

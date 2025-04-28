@@ -2,36 +2,113 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Keno 예측기</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Keno 예측기 (Cold Jump 판단)</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      line-height: 1.6;
+      max-width: 500px;
+      margin: auto;
+    }
+    input, button {
+      padding: 8px;
+      width: 100%;
+      margin-top: 8px;
+      box-sizing: border-box;
+    }
+    button {
+      cursor: pointer;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    .status-cold {
+      color: red;
+      font-weight: bold;
+    }
+    .status-normal {
+      color: green;
+      font-weight: bold;
+    }
+  </style>
 </head>
 <body>
-  <h2>Keno 예측기 (3세트)</h2>
+  <h2>Keno 예측기 (Cold Jump 기능 포함)</h2>
+  <label>날짜 선택:</label>
   <input type="date" id="date">
+
+  <label>회차 입력:</label>
   <input type="number" id="round_num" placeholder="회차">
+
   <button onclick="predict()">예측하기</button>
   <div id="result"></div>
 
-  <h2>실제 번호 입력</h2>
+  <hr>
+
+  <h2>실제 번호 입력 (모델 업데이트)</h2>
+  <label>날짜 선택:</label>
   <input type="date" id="update_date">
+
+  <label>회차 입력:</label>
   <input type="number" id="update_round_num" placeholder="회차">
-  <input type="text" id="numbers" placeholder="실제 번호 입력 (콤마로)">
+
+  <label>실제 번호 입력 (콤마로 구분):</label>
+  <input type="text" id="numbers" placeholder="예: 1,3,15,22,...">
+
   <button onclick="update()">모델 업데이트</button>
   <div id="update_status"></div>
 
-<script>
-function predict(){
- fetch('/predict',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
- body:`date=${date.value}&round_num=${round_num.value}`})
- .then(res=>res.json()).then(data=>{
-   if(data.error)result.innerHTML=data.error;
-   else result.innerHTML=data.sets.map((s,i)=>`세트${i+1}: ${s}`).join('<br>');
- });}
+  <script>
+    function predict() {
+      const date = document.getElementById('date').value;
+      const round_num = document.getElementById('round_num').value;
 
-function update(){
- fetch('/update',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
- body:`date=${update_date.value}&round_num=${update_round_num.value}&numbers=${numbers.value}`})
- .then(res=>res.json()).then(data=>update_status.innerHTML=data.status);}
-</script>
+      fetch('/predict', {
+        method: 'POST',
+        headers: {'Content-Type':'application/x-www-form-urlencoded'},
+        body: `date=${date}&round_num=${round_num}`
+      })
+      .then(res => res.json())
+      .then(data => {
+        const resultDiv = document.getElementById('result');
+        if(data.error) {
+          resultDiv.innerHTML = `<div>${data.error}</div>`;
+        } else {
+          let msg = data.cold_jump 
+            ? "<div class='status-cold'>🚨 Cold Jump 예상: (1세트만 제공)</div><br>"
+            : "<div class='status-normal'>✅ 일반 회차: (3세트 제공)</div><br>";
+
+          resultDiv.innerHTML = msg + data.sets.map((s,i)=>`세트 ${i+1}: [${s.join(', ')}]`).join('<br>');
+        }
+      })
+      .catch(err => {
+        document.getElementById('result').innerHTML = `오류: ${err}`;
+      });
+    }
+
+    function update() {
+      const date = document.getElementById('update_date').value;
+      const round_num = document.getElementById('update_round_num').value;
+      const numbers = document.getElementById('numbers').value;
+
+      fetch('/update', {
+        method: 'POST',
+        headers: {'Content-Type':'application/x-www-form-urlencoded'},
+        body: `date=${date}&round_num=${round_num}&numbers=${numbers}`
+      })
+      .then(res => res.json())
+      .then(data => {
+        document.getElementById('update_status').innerHTML = `<div>${data.status}</div>`;
+      })
+      .catch(err => {
+        document.getElementById('update_status').innerHTML = `오류: ${err}`;
+      });
+    }
+  </script>
 </body>
 </html>

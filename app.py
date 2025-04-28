@@ -1,3 +1,17 @@
+import os
+DATA_PATH = 'kenohistory7.csv'
+MODEL_PATH = 'model.pkl'
+
+# 모델 파일이 없을 때 최초 학습
+if not os.path.exists(MODEL_PATH):
+    data = pd.read_csv(DATA_PATH)
+    X, y = prepare_features(data)
+    model = MultiOutputClassifier(XGBClassifier(n_estimators=100, max_depth=7))
+    model.fit(X, y)
+    joblib.dump(model, MODEL_PATH)
+else:
+    model = joblib.load(MODEL_PATH)
+
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
 import numpy as np

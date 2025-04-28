@@ -1,4 +1,4 @@
-# Flask 및 필수 라이브러리 import (반드시 맨 위에 있어야 함)
+# Flask 및 필수 라이브러리 import
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
 import numpy as np
@@ -6,13 +6,16 @@ from xgboost import XGBClassifier
 from sklearn.multioutput import MultiOutputClassifier
 import joblib
 import os
+import gdown
 
 app = Flask(__name__)
 
 DATA_PATH = 'kenohistory7.csv'
 MODEL_PATH = 'model.pkl'
+# 사용자의 Google Drive 모델 파일 링크 반영 완료
+MODEL_URL = 'https://drive.google.com/uc?id=1-0aDTDnPgESOmGaSOHGN--_incCrVH6O'
 
-# 데이터 전처리 함수 (기존 코드 그대로 유지)
+# 데이터 전처리 함수
 def prepare_features(df):
     df = df.copy()
     df['Hour'] = pd.to_datetime(df['Time'], errors='coerce', format='%I:%M:%S %p').dt.hour
@@ -26,6 +29,7 @@ def prepare_features(df):
     df.dropna(subset=['Numbers', 'Prev_Numbers', 'Hour', 'Minute'], inplace=True)
     X_columns = ['GlobalRound', 'Hour', 'Minute'] + [f'Prev_Num_{num}' for num in range(1, 71)]
     X = df[X_columns].to_numpy()
+
     def numbers_to_binary(nums):
         binary_array = np.zeros(70, dtype=int)
         if pd.isna(nums):
@@ -36,11 +40,18 @@ def prepare_features(df):
                 if 0 <= idx < 70:
                     binary_array[idx] = 1
         return binary_array.tolist()
+
     y = df['Numbers'].apply(numbers_to_binary).tolist()
     return X, np.array(y)
 
-# 모델 파일 없을 때 최초 자동생성 로직 (중복 제거된 정확한 코드)
+# 모델 파일이 없으면 Google Drive에서 자동 다운로드
 if not os.path.exists(MODEL_PATH):
+    print("모델 파일 없음, Google Drive에서 다운로드 중...")
+    gdown.download(MODEL_URL, MODEL_PATH, quiet=False)
+
+# 다운로드 후에도 없으면 최초 자동 학습
+if not os.path.exists(MODEL_PATH):
+    print("모델 파일 여전히 없음, 최초 학습으로 생성 중...")
     data = pd.read_csv(DATA_PATH)
     X, y = prepare_features(data)
     model = MultiOutputClassifier(XGBClassifier(n_estimators=100, max_depth=7))
@@ -54,7 +65,7 @@ else:
 def home():
     return render_template('index.html')
 
-# 예측하기 기능 구현
+# 예측 기능 (Cold Jump 판단 기능 포함)
 @app.route('/predict', methods=['POST'])
 def predict():
     date = request.form.get('date')
@@ -64,7 +75,6 @@ def predict():
         return jsonify({'error': '날짜와 회차를 입력해주세요.'})
 
     round_num = int(round_num)
-
     data = pd.read_csv(DATA_PATH)
     daily_data = data[data['Date'] == date].reset_index(drop=True)
 
@@ -87,14 +97,23 @@ def predict():
 
     pred_proba = np.array([est.predict_proba(X_input)[0][1] for est in model.estimators_])
 
+    top22_mean_proba = np.mean(np.sort(pred_proba)[-22:])
+    threshold = 0.5
+
     sets = []
-    for _ in range(3):
-        nums = np.argsort(pred_proba + np.random.rand(70) * 0.01)[-22:][::-1] + 1
+    if top22_mean_proba >= threshold:
+        for _ in range(3):
+            nums = np.argsort(pred_proba + np.random.rand(70) * 0.01)[-22:][::-1] + 1
+            sets.append(sorted(nums.tolist()))
+        cold_jump = False
+    else:
+        nums = np.argsort(pred_proba)[-22:][::-1] + 1
         sets.append(sorted(nums.tolist()))
+        cold_jump = True
 
-    return jsonify({'sets': sets})
+    return jsonify({'sets': sets, 'cold_jump': cold_jump})
 
-# 실제 번호 입력 후 모델 업데이트 기능 구현
+# 실제 번호 입력 후 모델 업데이트
 @app.route('/update', methods=['POST'])
 def update():
     date, round_num, nums = request.form['date'], int(request.form['round_num']), request.form['numbers']

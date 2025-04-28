@@ -17,15 +17,15 @@ MODEL_PATH = 'model.pkl'
 MODEL_URL = 'https://drive.google.com/uc?id=1-0aDTDnPgESOmGaSOHGN--_incCrVH6O'
 DATA_URL = 'https://drive.google.com/uc?id=1-49bfcTDao0RZMNqo0klgf45-2k6StwK'
 
-# 모델 파일이 없으면 자동 다운로드
-if not os.path.exists(MODEL_PATH):
-    print("모델 파일 없음, Google Drive에서 다운로드 중...")
-    gdown.download(MODEL_URL, MODEL_PATH, quiet=False)
+# 모델 파일 강제 최신화
+if os.path.exists(MODEL_PATH):
+    os.remove(MODEL_PATH)
+gdown.download(MODEL_URL, MODEL_PATH, quiet=False)
 
-# 데이터 파일이 없으면 자동 다운로드
-if not os.path.exists(DATA_PATH):
-    print("데이터 파일 없음, Google Drive에서 다운로드 중...")
-    gdown.download(DATA_URL, DATA_PATH, quiet=False)
+# 데이터 파일 강제 최신화
+if os.path.exists(DATA_PATH):
+    os.remove(DATA_PATH)
+gdown.download(DATA_URL, DATA_PATH, quiet=False)
 
 # 데이터 전처리 함수
 def prepare_features(df):
@@ -56,23 +56,22 @@ def prepare_features(df):
     y = df['Numbers'].apply(numbers_to_binary).tolist()
     return X, np.array(y)
 
-# 모델이 없으면 최초 학습
-if not os.path.exists(MODEL_PATH):
-    print("모델 파일 여전히 없음, 최초 학습으로 생성 중...")
-    data = pd.read_csv(DATA_PATH)
-    X, y = prepare_features(data)
-    model = MultiOutputClassifier(XGBClassifier(n_estimators=100, max_depth=7))
-    model.fit(X, y)
-    joblib.dump(model, MODEL_PATH)
-else:
-    model = joblib.load(MODEL_PATH)
+# 모델 초기 로드
+model = joblib.load(MODEL_PATH)
 
 # 메인 페이지 설정
 @app.route('/')
 def home():
     return render_template('index.html')
 
-# 예측 기능 (Cold Jump 판단 기능 포함)
+# CSV 데이터 확인용 라우트 추가
+@app.route('/recent_data')
+def recent_data():
+    data = pd.read_csv(DATA_PATH)
+    recent = data.tail(5).to_dict(orient='records')
+    return jsonify(recent)
+
+# 최근 5회차로만 학습 및 예측 (빈 셀 무시)
 @app.route('/predict', methods=['POST'])
 def predict():
     date = request.form.get('date')
@@ -83,23 +82,31 @@ def predict():
 
     round_num = int(round_num)
     data = pd.read_csv(DATA_PATH)
-    daily_data = data[data['Date'] == date].reset_index(drop=True)
+
+    # 빈 셀 무시, 최근 5회차만 선택
+    valid_data = data.dropna(subset=['Numbers']).tail(5).copy()
+
+    if len(valid_data) < 5:
+        return jsonify({'error': '최소 5회차의 유효 데이터가 필요합니다.'})
+
+    X_recent, y_recent = prepare_features(valid_data)
+    model.fit(X_recent, y_recent)
 
     try:
-        idx = daily_data.index[daily_data['GlobalRound'] == round_num][0]
-    except IndexError:
-        return jsonify({'error': '데이터에 해당 회차가 없습니다.'})
+        current_idx = data[(data['Date'] == date) & (data['GlobalRound'] == round_num)].index[0]
+        prev_row = data.iloc[current_idx - 1]
+    except (IndexError, KeyError):
+        return jsonify({'error': '입력한 날짜와 회차를 찾을 수 없습니다.'})
 
-    if idx == 0 or pd.isna(daily_data.iloc[idx - 1]['Numbers']):
-        return jsonify({'error': '이전 회차 데이터가 없습니다.'})
+    recent_valid_row = data.iloc[:current_idx].dropna(subset=['Numbers']).iloc[-1]
+    prev_numbers = recent_valid_row['Numbers']
+    hour = pd.to_datetime(prev_row['Time']).hour
+    minute = pd.to_datetime(prev_row['Time']).minute
+    global_round = prev_row['GlobalRound']
 
-    prev_numbers = daily_data.iloc[idx - 1]['Numbers']
-    hour = pd.to_datetime(daily_data.iloc[idx]['Time']).hour
-    minute = pd.to_datetime(daily_data.iloc[idx]['Time']).minute
-    global_round = daily_data.iloc[idx]['GlobalRound']
-
-    features = [global_round, hour, minute] + \
-               [1 if str(num).zfill(2) in prev_numbers else 0 for num in range(1, 71)]
+    features = [global_round, hour, minute] + [
+        1 if str(num).zfill(2) in prev_numbers else 0 for num in range(1, 71)
+    ]
     X_input = np.array(features).reshape(1, -1)
 
     pred_proba = np.array([est.predict_proba(X_input)[0][1] for est in model.estimators_])

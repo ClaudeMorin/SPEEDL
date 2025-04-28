@@ -14,7 +14,7 @@ DATA_PATH = 'kenohistory7.csv'
 MODEL_PATH = 'model.pkl'
 
 # Google Drive에서 최신 모델과 데이터 파일 자동 다운로드
-MODEL_URL = 'https://drive.google.com/file/d/1CDQX2x_8LLhyYATz5H09ID4Z9jBe4gUL/view?usp=drive_link'
+MODEL_URL = ''https://drive.google.com/uc?id=1CDQX2x_8LLhyYATz5H09ID4Z9jBe4gUL'
 
 DATA_URL = 'https://drive.google.com/uc?id=1-49bfcTDao0RZMNqo0klgf45-2k6StwK'
 

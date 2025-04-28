@@ -11,7 +11,7 @@ import gdown
 app = Flask(__name__)
 
 DATA_PATH = 'kenohistory7.csv'
-MODEL_PATH = 'model.pkl'
+MODEL_PATH = 'model_latest_fixed.pkl'
 
 # Google Drive에서 최신 모델과 데이터 파일 자동 다운로드
 MODEL_URL = 'https://drive.google.com/uc?id=1THr8QvmMHpC9nTlqENX5muSopozEiclV'

@@ -1,46 +1,77 @@
 from flask import Flask, render_template, request, jsonify
-app = Flask(__name__)  # 반드시 이렇게 작성되어 있어야 합니다.
+import pandas as pd
+import numpy as np
+from xgboost import XGBClassifier
+from sklearn.multioutput import MultiOutputClassifier
+import joblib
+
+app = Flask(__name__)
+
+DATA_PATH = 'kenohistory7.csv'
+MODEL_PATH = 'model.pkl'
+
+# 모델 최초 1회 로딩 필수!
+model = joblib.load(MODEL_PATH)
 
 @app.route('/')
 def home():
     return render_template('index.html')
-    
-def prepare_features(df):
-    df = df.copy()
 
-    # 시간정보를 명확한 포맷으로 안전하게 처리 (에러 발생 방지)
-    df['Hour'] = pd.to_datetime(df['Time'], errors='coerce', format='%I:%M:%S %p').dt.hour
-    df['Minute'] = pd.to_datetime(df['Time'], errors='coerce', format='%I:%M:%S %p').dt.minute
+# 여기에 반드시 `/predict` route 추가 필수!
+@app.route('/predict', methods=['POST'])
+def predict():
+    date = request.form.get('date')
+    round_num = request.form.get('round_num')
 
-    # 이전 회차의 번호(Prev_Numbers) 생성
-    df['Prev_Numbers'] = df['Numbers'].shift(1)
+    if not date or not round_num:
+        return jsonify({'error': '날짜와 회차를 입력해주세요.'})
 
-    # 숫자 (1~70)의 이전 회차 등장 여부를 명확히 체크
-    for num in range(1, 71):
-        num_str = str(num).zfill(2)
-        df[f'Prev_Num_{num}'] = df['Prev_Numbers'].apply(
-            lambda x: 1 if pd.notna(x) and num_str in x.split(',') else 0
-        )
+    round_num = int(round_num)
 
-    # 필수 데이터 누락된 행을 명확히 제거 (결측값 방지)
-    df.dropna(subset=['Numbers', 'Prev_Numbers', 'Hour', 'Minute'], inplace=True)
+    data = pd.read_csv(DATA_PATH)
+    daily_data = data[data['Date'] == date].reset_index(drop=True)
 
-    # 입력 특성(X) 명확히 정의 및 생성
-    X_columns = ['GlobalRound', 'Hour', 'Minute'] + [f'Prev_Num_{num}' for num in range(1, 71)]
-    X = df[X_columns].to_numpy()
+    try:
+        idx = daily_data.index[daily_data['GlobalRound'] == round_num][0]
+    except IndexError:
+        return jsonify({'error': '데이터에 해당 회차가 없습니다.'})
 
-    # 예측할 정답(y) 명확히 생성 (NaN 완벽 방지)
-    def numbers_to_binary(nums):
-        binary_array = np.zeros(70, dtype=int)
-        if pd.isna(nums):
-            return binary_array
-        for n in nums.split(','):
-            if n.strip().isdigit():
-                idx = int(n.strip()) - 1
-                if 0 <= idx < 70:
-                    binary_array[idx] = 1
-        return binary_array.tolist()
+    if idx == 0 or pd.isna(daily_data.iloc[idx - 1]['Numbers']):
+        return jsonify({'error': '이전 회차 데이터가 없습니다.'})
 
-    y = df['Numbers'].apply(numbers_to_binary).tolist()
+    prev_numbers = daily_data.iloc[idx - 1]['Numbers']
+    hour = pd.to_datetime(daily_data.iloc[idx]['Time']).hour
+    minute = pd.to_datetime(daily_data.iloc[idx]['Time']).minute
+    global_round = daily_data.iloc[idx]['GlobalRound']
 
-    return X, np.array(y)
+    features = [global_round, hour, minute] + \
+               [1 if str(num).zfill(2) in prev_numbers else 0 for num in range(1, 71)]
+    X_input = np.array(features).reshape(1, -1)
+
+    pred_proba = np.array([est.predict_proba(X_input)[0][1] for est in model.estimators_])
+
+    sets = []
+    for _ in range(3):
+        nums = np.argsort(pred_proba + np.random.rand(70) * 0.01)[-22:][::-1] + 1
+        sets.append(sorted(nums.tolist()))
+
+    return jsonify({'sets': sets})
+
+# update route 추가 필수!
+@app.route('/update', methods=['POST'])
+def update():
+    date, round_num, nums = request.form['date'], int(request.form['round_num']), request.form['numbers']
+    actual_numbers = [int(n) for n in nums.split(',') if n.strip().isdigit()]
+    numbers_str = ','.join([str(n).zfill(2) for n in actual_numbers])
+
+    data = pd.read_csv(DATA_PATH)
+    data.loc[(data['Date'] == date) & (data['GlobalRound'] == round_num), 'Numbers'] = numbers_str
+    data.to_csv(DATA_PATH, index=False)
+
+    X, y = prepare_features(data)
+    model.fit(X, y)
+    joblib.dump(model, MODEL_PATH)
+
+    return jsonify({'status': '모델 업데이트 완료!'})
+
+# prepare_features 함수는 기존 그대로 유지하세요 (업로드된 내용 유지)

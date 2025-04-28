@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Keno 예측기</title>
+</head>
+<body>
+  <h2>Keno 예측기 (3세트)</h2>
+  <input type="date" id="date">
+  <input type="number" id="round_num" placeholder="회차">
+  <button onclick="predict()">예측하기</button>
+  <div id="result"></div>
+
+  <h2>실제 번호 입력</h2>
+  <input type="date" id="update_date">
+  <input type="number" id="update_round_num" placeholder="회차">
+  <input type="text" id="numbers" placeholder="실제 번호 입력 (콤마로)">
+  <button onclick="update()">모델 업데이트</button>
+  <div id="update_status"></div>
+
+<script>
+function predict(){
+ fetch('/predict',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
+ body:`date=${date.value}&round_num=${round_num.value}`})
+ .then(res=>res.json()).then(data=>{
+   if(data.error)result.innerHTML=data.error;
+   else result.innerHTML=data.sets.map((s,i)=>`세트${i+1}: ${s}`).join('<br>');
+ });}
+
+function update(){
+ fetch('/update',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
+ body:`date=${update_date.value}&round_num=${update_round_num.value}&numbers=${numbers.value}`})
+ .then(res=>res.json()).then(data=>update_status.innerHTML=data.status);}
+</script>
+</body>
+</html>

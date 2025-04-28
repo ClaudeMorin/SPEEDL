@@ -1,8 +1,45 @@
+# Flask 및 필수 라이브러리 import (반드시 맨 위에 있어야 함)
+from flask import Flask, render_template, request, jsonify
+import pandas as pd
+import numpy as np
+from xgboost import XGBClassifier
+from sklearn.multioutput import MultiOutputClassifier
+import joblib
 import os
+
+app = Flask(__name__)
+
 DATA_PATH = 'kenohistory7.csv'
 MODEL_PATH = 'model.pkl'
 
-# 모델 파일이 없을 때 최초 학습
+# 데이터 전처리 함수 (기존 코드 그대로 유지)
+def prepare_features(df):
+    df = df.copy()
+    df['Hour'] = pd.to_datetime(df['Time'], errors='coerce', format='%I:%M:%S %p').dt.hour
+    df['Minute'] = pd.to_datetime(df['Time'], errors='coerce', format='%I:%M:%S %p').dt.minute
+    df['Prev_Numbers'] = df['Numbers'].shift(1)
+    for num in range(1, 71):
+        num_str = str(num).zfill(2)
+        df[f'Prev_Num_{num}'] = df['Prev_Numbers'].apply(
+            lambda x: 1 if pd.notna(x) and num_str in x.split(',') else 0
+        )
+    df.dropna(subset=['Numbers', 'Prev_Numbers', 'Hour', 'Minute'], inplace=True)
+    X_columns = ['GlobalRound', 'Hour', 'Minute'] + [f'Prev_Num_{num}' for num in range(1, 71)]
+    X = df[X_columns].to_numpy()
+    def numbers_to_binary(nums):
+        binary_array = np.zeros(70, dtype=int)
+        if pd.isna(nums):
+            return binary_array
+        for n in nums.split(','):
+            if n.strip().isdigit():
+                idx = int(n.strip()) - 1
+                if 0 <= idx < 70:
+                    binary_array[idx] = 1
+        return binary_array.tolist()
+    y = df['Numbers'].apply(numbers_to_binary).tolist()
+    return X, np.array(y)
+
+# 모델 파일 없을 때 최초 자동생성 로직 (중복 제거된 정확한 코드)
 if not os.path.exists(MODEL_PATH):
     data = pd.read_csv(DATA_PATH)
     X, y = prepare_features(data)
@@ -12,28 +49,12 @@ if not os.path.exists(MODEL_PATH):
 else:
     model = joblib.load(MODEL_PATH)
 
-from flask import Flask, render_template, request, jsonify
-import pandas as pd  # 반드시 추가!
-import numpy as np
-from xgboost import XGBClassifier
-from sklearn.multioutput import MultiOutputClassifier
-import joblib
-import os
-import gdown
-
-app = Flask(__name__)
-
-DATA_PATH = 'kenohistory7.csv'
-MODEL_PATH = 'model.pkl'
-
-# 모델 최초 1회 로딩 필수!
-model = joblib.load(MODEL_PATH)
-
+# 메인 페이지 설정
 @app.route('/')
 def home():
     return render_template('index.html')
 
-# 여기에 반드시 `/predict` route 추가 필수!
+# 예측하기 기능 구현
 @app.route('/predict', methods=['POST'])
 def predict():
     date = request.form.get('date')
@@ -73,7 +94,7 @@ def predict():
 
     return jsonify({'sets': sets})
 
-# update route 추가 필수!
+# 실제 번호 입력 후 모델 업데이트 기능 구현
 @app.route('/update', methods=['POST'])
 def update():
     date, round_num, nums = request.form['date'], int(request.form['round_num']), request.form['numbers']
@@ -90,4 +111,5 @@ def update():
 
     return jsonify({'status': '모델 업데이트 완료!'})
 
-# prepare_features 함수는 기존 그대로 유지하세요 (업로드된 내용 유지)
+if __name__ == '__main__':
+    app.run()

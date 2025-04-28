@@ -1,3 +1,10 @@
+from flask import Flask, render_template, request, jsonify
+# 위의 import 문 뒤에, 이 라우트(route) 추가하기!
+
+@app.route('/')
+def home():
+    return render_template('index.html')
+
 from flask import Flask
 app = Flask(__name__)  # 반드시 이렇게 작성되어 있어야 합니다.
 

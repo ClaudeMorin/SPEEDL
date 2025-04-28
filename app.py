@@ -13,11 +13,13 @@ else:
     model = joblib.load(MODEL_PATH)
 
 from flask import Flask, render_template, request, jsonify
-import pandas as pd
+import pandas as pd  # 반드시 추가!
 import numpy as np
 from xgboost import XGBClassifier
 from sklearn.multioutput import MultiOutputClassifier
 import joblib
+import os
+import gdown
 
 app = Flask(__name__)
 
